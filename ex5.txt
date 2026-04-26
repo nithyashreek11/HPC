@@ -1,0 +1,164 @@
+[23bcs018@mepcolinux hpc]$cat ex5.txt
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <time.h>
+
+#define MAX 10
+
+int r, c;
+int A[MAX][MAX], B[MAX][MAX];
+int Add[MAX][MAX], Mul[MAX][MAX];
+
+pthread_mutex_t lock;
+
+// Thread for Matrix Addition
+void* matrix_add(void* arg)
+{
+    pthread_mutex_lock(&lock);
+
+    for(int i = 0; i < r; i++)
+    {
+        for(int j = 0; j < c; j++)
+        {
+            Add[i][j] = A[i][j] + B[i][j];
+        }
+    }
+
+    pthread_mutex_unlock(&lock);
+    pthread_exit(NULL);
+}
+
+// Thread for Matrix Multiplication
+void* matrix_multiply(void* arg)
+{
+    pthread_mutex_lock(&lock);
+
+    for(int i = 0; i < r; i++)
+    {
+        for(int j = 0; j < c; j++)
+        {
+            Mul[i][j] = 0;
+            for(int k = 0; k < c; k++)
+            {
+                Mul[i][j] += A[i][k] * B[k][j];
+            }
+        }
+    }
+
+    pthread_mutex_unlock(&lock);
+    pthread_exit(NULL);
+}
+
+int main()
+{
+    pthread_t t1, t2;
+
+    clock_t start, end;
+    double time_taken;
+
+    pthread_mutex_init(&lock, NULL);
+
+    // Input size
+    printf("Enter number of rows and columns (square matrix): ");
+    scanf("%d %d", &r, &c);
+
+    // Generate random matrices
+    srand(time(NULL));
+
+    for(int i = 0; i < r; i++)
+    {
+        for(int j = 0; j < c; j++)
+        {
+            A[i][j] = rand() % 10;
+            B[i][j] = rand() % 10;
+        }
+    }
+
+    // Display input matrices only if size < 5
+    if(r < 5 && c < 5)
+    {
+        printf("\nMatrix A:\n");
+        for(int i = 0; i < r; i++)
+        {
+            for(int j = 0; j < c; j++)
+                printf("%d ", A[i][j]);
+            printf("\n");
+        }
+
+        printf("\nMatrix B:\n");
+        for(int i = 0; i < r; i++)
+        {
+            for(int j = 0; j < c; j++)
+                printf("%d ", B[i][j]);
+            printf("\n");
+        }
+    }
+
+    start = clock();
+
+    // Create threads
+    pthread_create(&t1, NULL, matrix_add, NULL);
+    pthread_create(&t2, NULL, matrix_multiply, NULL);
+
+    // Wait for threads
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    end = clock();
+
+    time_taken = ((double)(end - start)) / CLOCKS_PER_SEC;
+
+    // Display results only if size < 5
+    if(r < 5 && c < 5)
+    {
+        printf("\nAddition Result:\n");
+        for(int i = 0; i < r; i++)
+        {
+            for(int j = 0; j < c; j++)
+                printf("%d ", Add[i][j]);
+            printf("\n");
+        }
+
+        printf("\nMultiplication Result:\n");
+        for(int i = 0; i < r; i++)
+        {
+            for(int j = 0; j < c; j++)
+                printf("%d ", Mul[i][j]);
+            printf("\n");
+        }
+    }
+
+    printf("\nExecution Time: %f seconds\n", time_taken);
+
+    pthread_mutex_destroy(&lock);
+
+    return 0;
+}
+[23bcs018@mepcolinux hpc]$cat op5.txt
+III-A2@cil20:~/Desktop$ ./ex5 2
+Enter number of rows and columns (square matrix): 4 4
+
+Matrix A:
+5 9 5 7
+2 5 7 0
+5 2 6 6
+2 9 8 0
+
+Matrix B:
+1 8 0 2
+5 7 6 0
+2 7 4 9
+4 9 4 4
+
+Addition Result:
+6 17 5 9
+7 12 13 0
+7 9 10 15
+6 18 12 4
+
+Multiplication Result:
+88 201 102 83
+41 100 58 67
+51 150 60 88
+63 135 86 76

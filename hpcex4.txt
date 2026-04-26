@@ -1,0 +1,183 @@
+students.txt
+
+6
+Anu 101 450
+Rahul 102 380
+Meena 103 490
+Kiran 104 300
+Divya 105 420
+Arjun 106 360
+
+| Marks  | Grade |
+| ------ | ----- |
+| >= 450 | A     |
+| >= 400 | B     |
+| >= 350 | C     |
+| >= 300 | D     |
+| < 300  | F     |
+
+
+#include <mpi.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_NAME 50
+
+// Student structure
+typedef struct
+{
+    char name[MAX_NAME];
+    int roll;
+    int total;
+    char grade;
+    char code[20];
+} Student;
+
+// Grade function
+char find_grade(int total)
+{
+    if (total >= 450) return 'O';
+    else if (total >= 400) return 'A';
+    else if (total >= 350) return 'B';
+    else if (total >= 300) return 'C';
+    else return 'F';
+}
+
+int main(int argc, char *argv[])
+{
+    int rank, size, n;
+    Student *students = NULL;
+    Student *sub_students = NULL;
+
+    MPI_Datatype MPI_STUDENT;
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    // -------- CREATE DERIVED DATATYPE --------
+
+    Student temp;
+
+    int blocklengths[5] = {MAX_NAME, 1, 1, 1, 20};
+    MPI_Aint displacements[5];
+    MPI_Datatype types[5] = {MPI_CHAR, MPI_INT, MPI_INT, MPI_CHAR, MPI_CHAR};
+
+    MPI_Aint base_address;
+
+    MPI_Get_address(&temp, &base_address);
+    MPI_Get_address(&temp.name, &displacements[0]);
+    MPI_Get_address(&temp.roll, &displacements[1]);
+    MPI_Get_address(&temp.total, &displacements[2]);
+    MPI_Get_address(&temp.grade, &displacements[3]);
+    MPI_Get_address(&temp.code, &displacements[4]);
+
+    for (int i = 0; i < 5; i++)
+        displacements[i] = displacements[i] - base_address;
+
+    MPI_Type_create_struct(5, blocklengths, displacements, types, &MPI_STUDENT);
+    MPI_Type_commit(&MPI_STUDENT);
+
+    // -------- MASTER READS FILE --------
+
+    if (rank == 0)
+    {
+        FILE *fp = fopen("students.txt", "r");
+        if (fp == NULL)
+        {
+            printf("File not found!\n");
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+
+        fscanf(fp, "%d", &n);
+
+        if (n % size != 0)
+        {
+            printf("Number of students must be divisible by processes!\n");
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+
+        students = (Student *)malloc(n * sizeof(Student));
+
+        for (int i = 0; i < n; i++)
+        {
+            fscanf(fp, "%s %d %d",
+                   students[i].name,
+                   &students[i].roll,
+                   &students[i].total);
+
+            // Unique beginner style code
+            sprintf(students[i].code, "MBA_%d_%d",
+                    students[i].roll,
+                    students[i].total % 97);
+
+            students[i].grade = '-';
+        }
+
+        fclose(fp);
+    }
+
+    // Broadcast n
+    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    int sub_n = n / size;
+
+    sub_students = (Student *)malloc(sub_n * sizeof(Student));
+
+    // Scatter students
+    MPI_Scatter(students, sub_n, MPI_STUDENT,
+                sub_students, sub_n, MPI_STUDENT,
+                0, MPI_COMM_WORLD);
+
+    // Each process calculates grade
+    for (int i = 0; i < sub_n; i++)
+    {
+        sub_students[i].grade = find_grade(sub_students[i].total);
+    }
+
+    // Gather back
+    MPI_Gather(sub_students, sub_n, MPI_STUDENT,
+               students, sub_n, MPI_STUDENT,
+               0, MPI_COMM_WORLD);
+
+    // Master prints and writes file
+    if (rank == 0)
+    {
+        FILE *out = fopen("grade_output.txt", "w");
+
+        printf("\nFinal Grade List:\n");
+        fprintf(out, "Name Roll Total Grade Code\n");
+
+        for (int i = 0; i < n; i++)
+        {
+            printf("%s %d %d %c %s\n",
+                   students[i].name,
+                   students[i].roll,
+                   students[i].total,
+                   students[i].grade,
+                   students[i].code);
+
+            fprintf(out, "%s %d %d %c %s\n",
+                    students[i].name,
+                    students[i].roll,
+                    students[i].total,
+                    students[i].grade,
+                    students[i].code);
+        }
+
+        fclose(out);
+        printf("\nGrades written to grade_output.txt\n");
+    }
+
+    // Free datatype
+    MPI_Type_free(&MPI_STUDENT);
+
+    free(sub_students);
+    if (rank == 0)
+        free(students);
+
+    MPI_Finalize();
+    return 0;
+}
+
